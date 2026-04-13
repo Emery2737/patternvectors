@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Traffic Pattern Vectoring Aid</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { background: #080e18; height: 100%; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+    button { -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; font-family: Menlo, Courier New, monospace; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    var DEG = Math.PI / 180;
+    var mod360 = function(x) { return ((x % 360) + 360) % 360; };
+    var fmt = function(h) { return String(Math.round(mod360(h)) || 360).padStart(3, "0"); };
+
+    function hvec(deg) { return { x: Math.sin(deg*DEG), y: -Math.cos(deg*DEG) }; }
+    function perpOf(v, left) { return left ? { x: v.y, y: -v.x } : { x: -v.y, y: v.x }; }
+
+    var LEG = {
+      final:     { color: "#34d399", label: "FINAL" },
+      upwind:    { color: "#22d3ee", label: "UPWIND" },
+      crosswind: { color: "#fb923c", label: "X-WIND" },
+      downwind:  { color: "#facc15", label: "DOWNWIND" },
+      base:      { color: "#c084fc", label: "BASE" }
+    };
+
+    function arrowHead(from, to, size) {
+      var dx = to.x-from.x, dy = to.y-from.y;
+      var len = Math.sqrt(dx*dx+dy*dy)||1;
+      var ux = dx/len, uy = dy/len;
+      var mx = (from.x+to.x)/2, my = (from.y+to.y)/2;
+      return mx+","+my+" "+(mx-ux*size+uy*size*0.5)+","+(my-uy*size-ux*size*0.5)+" "+(mx-ux*size-uy*size*0.5)+","+(my-uy*size+ux*size*0.5);
+    }
+
+    var CX=195, CY=195, R=168, SZ=390, L=100, W=74;
+    var rwy=null, isLeft=null;
+
+    function selectRwy(n)     { rwy=n; isLeft=null; render(); }
+    function selectTraffic(v) { isLeft=v; render(); }
+    function chgTraffic()     { isLeft=null; render(); }
+    function chgRunway()      { rwy=null; isLeft=null; render(); }
+    window.selectRwy=selectRwy; window.selectTraffic=selectTraffic;
+    window.chgTraffic=chgTraffic; window.chgRunway=chgRunway;
+
+    var FONT = "Menlo, Courier New, monospace";
+
+    function buildTicks() {
+      var s = "";
+      for (var d=0; d<360; d+=5) {
+        var a = (d-90)*DEG;
+        var ca = Math.cos(a), sa = Math.sin(a);
+        var isMaj = d%30===0, isMed = d%10===0;
+        var inner = isMaj ? R-26 : isMed ? R-16 : R-8;
+        var stroke = isMaj ? "#94a3b8" : isMed ? "#64748b" : "#3f4f63";
+        var sw = isMaj ? 1.5 : 0.8;
+        s += '<line x1="'+(CX+R*ca)+'" y1="'+(CY+R*sa)+'" x2="'+(CX+inner*ca)+'" y2="'+(CY+inner*sa)+'" stroke="'+stroke+'" stroke-width="'+sw+'"/>';
+        if (isMed) {
+          var lR = R-(isMaj?48:34);
+          var lx = CX+lR*ca, ly = CY+lR*sa;
+          var card = d===0?"N":d===90?"E":d===180?"S":d===270?"W":null;
+          var lbl  = card || String(d/10).padStart(2,"0");
+          var fs   = card ? 21 : 14;
+          var fw   = card ? "bold" : "normal";
+          var fill = d===0 ? "#f87171" : card ? "#ffffff" : "#cbd5e1";
+          s += '<text x="'+lx+'" y="'+ly+'" text-anchor="middle" dominant-baseline="central" font-size="'+fs+'" font-weight="'+fw+'" fill="'+fill+'" font-family="'+FONT+'" text-rendering="geometricPrecision">'+lbl+'</text>';
+        }
+      }
+      return s;
+    }
+
+    var TICKS = buildTicks();
+
+    function buildPattern(rwyHdg, left, hdgs) {
+      var rv = hvec(rwyHdg), pv = perpOf(rv, left);
+      var T={x:CX,y:CY}, B={x:CX+rv.x*L,y:CY+rv.y*L};
+      var C={x:B.x+pv.x*W,y:B.y+pv.y*W}, D={x:CX+pv.x*W,y:CY+pv.y*W};
+      var F={x:CX-rv.x*56,y:CY-rv.y*56};
+      var legs=[
+        {key:"final",from:F,to:T,dashed:true},
+        {key:"upwind",from:T,to:B},
+        {key:"crosswind",from:B,to:C},
+        {key:"downwind",from:C,to:D},
+        {key:"base",from:D,to:T}
+      ];
+      var s = '<polygon points="'+T.x+","+T.y+" "+B.x+","+B.y+" "+C.x+","+C.y+" "+D.x+","+D.y+'" fill="rgba(255,255,255,0.025)" stroke="none"/>';
+      legs.forEach(function(leg) {
+        var color=LEG[leg.key].color, da=leg.dashed?'stroke-dasharray="5,3.5"':"";
+        var op=leg.dashed?0.7:1, sw=leg.dashed?1.5:2, asw=leg.dashed?8:12;
+        s += '<line x1="'+leg.from.x+'" y1="'+leg.from.y+'" x2="'+leg.to.x+'" y2="'+leg.to.y+'" stroke="'+color+'" stroke-width="'+sw+'" '+da+' stroke-linecap="round" opacity="'+op+'"/>';
+        s += '<polygon points="'+arrowHead(leg.from,leg.to,asw)+'" fill="'+color+'" opacity="'+op+'"/>';
+      });
+      s += '<line x1="'+(CX-rv.x*10)+'" y1="'+(CY-rv.y*10)+'" x2="'+(CX+rv.x*10)+'" y2="'+(CY+rv.y*10)+'" stroke="white" stroke-width="5" stroke-linecap="round"/>';
+      s += '<circle cx="'+CX+'" cy="'+CY+'" r="5" fill="#0f172a" stroke="white" stroke-width="1.5"/>';
+      s += '<circle cx="'+CX+'" cy="'+CY+'" r="2" fill="white"/>';
+      [{from:T,to:B,key:"upwind",ox:pv.x*-24,oy:pv.y*-24},
+       {from:B,to:C,key:"crosswind",ox:rv.x*-24,oy:rv.y*-24},
+       {from:C,to:D,key:"downwind",ox:pv.x*24,oy:pv.y*24},
+       {from:D,to:T,key:"base",ox:rv.x*24,oy:rv.y*24}
+      ].forEach(function(item) {
+        var color=LEG[item.key].color;
+        var mx=(item.from.x+item.to.x)/2+item.ox, my=(item.from.y+item.to.y)/2+item.oy;
+        s += '<text x="'+mx+'" y="'+my+'" text-anchor="middle" dominant-baseline="central" font-size="17" font-family="'+FONT+'" font-weight="bold" fill="'+color+'" text-rendering="geometricPrecision">'+fmt(hdgs[item.key])+'&#176;</text>';
+      });
+      return s;
+    }
+
+    function render() {
+      var rwyHdg = rwy ? (rwy===36?360:rwy*10) : null;
+      var hasPattern = rwy!==null && isLeft!==null;
+      var hdgs = hasPattern ? {
+        final:rwyHdg, upwind:rwyHdg,
+        crosswind: isLeft ? mod360(rwyHdg-90) : mod360(rwyHdg+90),
+        downwind:  mod360(rwyHdg+180),
+        base:      isLeft ? mod360(rwyHdg+90) : mod360(rwyHdg-90)
+      } : null;
+
+      var patSvg = hasPattern ? buildPattern(rwyHdg,isLeft,hdgs) : "";
+      var xo = hasPattern ? 0.15 : 0.35;
+
+      var legTable = "";
+      if (hasPattern) {
+        var rows = "";
+        Object.entries(LEG).forEach(function(e) {
+          var key=e[0], color=e[1].color, label=e[1].label;
+          rows += '<div style="display:flex;align-items:center;gap:8px;white-space:nowrap;">'
+            +'<div style="width:12px;height:12px;border-radius:3px;background:'+color+';flex-shrink:0;"></div>'
+            +'<span style="color:'+color+';min-width:72px;font-weight:bold;">'+label+'</span>'
+            +'<span style="color:#fff;font-weight:bold;font-size:17px;">'+fmt(hdgs[key])+'&#176;</span>'
+            +'</div>';
+        });
+        legTable = '<div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;font-size:14px;letter-spacing:1px;width:100%;max-width:310px;">'+rows+'</div>';
+      }
+
+      var controls = "";
+      if (rwy===null) {
+        var btns = "";
+        for (var n=1;n<=36;n++) {
+          btns += '<button onclick="selectRwy('+n+')" style="background:#0c1624;border:1px solid #1a2a3a;color:#cbd5e1;border-radius:4px;padding:8px 0;font-size:13px;cursor:pointer;letter-spacing:1px;">'+String(n).padStart(2,"0")+'</button>';
+        }
+        controls = '<div style="font-size:9px;letter-spacing:3px;color:#ffffff;text-align:center;margin-bottom:8px;">SELECT RUNWAY</div>'
+          +'<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;">'+btns+'</div>';
+      } else if (isLeft===null) {
+        controls = '<div style="font-size:9px;letter-spacing:3px;color:#ffffff;text-align:center;margin-bottom:10px;">TRAFFIC DIRECTION</div>'
+          +'<div style="display:flex;gap:8px;">'
+          +'<button onclick="selectTraffic(true)" style="flex:1;background:#0c1624;border:1px solid #2a3f55;color:#fff;border-radius:6px;padding:12px 0;font-size:14px;letter-spacing:2px;cursor:pointer;font-weight:bold;">&#8592; LEFT</button>'
+          +'<button onclick="selectTraffic(false)" style="flex:1;background:#0c1624;border:1px solid #2a3f55;color:#fff;border-radius:6px;padding:12px 0;font-size:14px;letter-spacing:2px;cursor:pointer;font-weight:bold;">RIGHT &#8594;</button>'
+          +'</div>';
+      } else {
+        controls = '<div style="display:flex;gap:6px;">'
+          +'<button onclick="chgTraffic()" style="flex:1;background:#0c1624;border:1px solid #2a3f55;color:#fff;border-radius:5px;padding:12px 0;font-size:13px;letter-spacing:2px;cursor:pointer;font-weight:bold;">CHG TRAFFIC</button>'
+          +'<button onclick="chgRunway()" style="flex:1;background:#0c1624;border:1px solid #2a3f55;color:#fff;border-radius:5px;padding:12px 0;font-size:13px;letter-spacing:2px;cursor:pointer;font-weight:bold;">CHG RUNWAY</button>'
+          +'</div>';
+      }
+
+      var header = hasPattern
+        ? '<div style="font-size:14px;color:#e2e8f0;letter-spacing:2px;font-weight:bold;">RWY '+String(rwy).padStart(2,"0")+" &#183; "+(isLeft?"LEFT":"RIGHT")+" TRAFFIC &#183; HDG "+fmt(rwyHdg)+"&#176;</div>"
+        : "";
+
+      document.getElementById("app").innerHTML =
+        '<div style="min-height:100vh;background:#080e18;color:#e2e8f0;font-family:Menlo,Courier New,monospace;display:flex;flex-direction:column;align-items:center;padding:16px;">'
+        +'<div style="text-align:center;margin-bottom:10px;">'
+        +'<div style="font-size:13px;letter-spacing:4px;color:#ffffff;margin-bottom:4px;font-weight:bold;">TRAFFIC PATTERN VECTORING AID</div>'
+        +header
+        +'</div>'
+        +'<div style="border-radius:50%;border:1.5px solid #1a2535;box-shadow:0 0 0 6px #0a1020,0 0 0 7px #1a2535;background:radial-gradient(circle at 40% 35%,#0d1929 0%,#080e18 100%);">'
+        +'<svg width="'+SZ+'" height="'+SZ+'" xmlns="http://www.w3.org/2000/svg" text-rendering="geometricPrecision" shape-rendering="geometricPrecision">'
+        +'<circle cx="'+CX+'" cy="'+CY+'" r="'+(R+5)+'" fill="none" stroke="#1a2535" stroke-width="1"/>'
+        +'<circle cx="'+CX+'" cy="'+CY+'" r="'+R+'" fill="none" stroke="#1e3048" stroke-width="0.5"/>'
+        +TICKS
+        +'<polygon points="'+CX+","+(CY-R-1)+" "+(CX-5)+","+(CY-R-11)+" "+(CX+5)+","+(CY-R-11)+'" fill="#f87171"/>'
+        +'<g opacity="'+xo+'">'
+        +'<line x1="'+(CX-18)+'" y1="'+CY+'" x2="'+(CX+18)+'" y2="'+CY+'" stroke="#3a4f65" stroke-width="0.8"/>'
+        +'<line x1="'+CX+'" y1="'+(CY-18)+'" x2="'+CX+'" y2="'+(CY+18)+'" stroke="#3a4f65" stroke-width="0.8"/>'
+        +'<circle cx="'+CX+'" cy="'+CY+'" r="5" fill="none" stroke="#3a4f65" stroke-width="0.8"/>'
+        +'</g>'
+        +patSvg
+        +'</svg></div>'
+        +legTable
+        +'<div style="margin-top:16px;width:100%;max-width:310px;">'+controls+'</div>'
+        +'<div style="margin-top:14px;font-size:7px;color:#1a2535;letter-spacing:2px;">TRAINING AID ONLY &#8212; NOT FOR OPERATIONAL USE</div>'
+        +'</div>';
+    }
+
+    render();
+  </script>
+</body>
+</html>
